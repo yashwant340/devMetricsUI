@@ -1,31 +1,31 @@
 import { useEffect, useState, type JSX } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 export default function AuthCallback(): JSX.Element {
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [status, setStatus] = useState<string>("Signing you in...");
 
   useEffect(() => {
-    const token = searchParams.get("token");
-
-    if (!token) {
-      setStatus("Login failed — no token received.");
-      setTimeout(() => {
-        navigate("/login?error=missing_token", { replace: true });
-      }, 2000);
-      return;
-    }
-
-    // Save the JWT
-    sessionStorage.setItem("devmetrics_token", token);
-
-    setStatus("Success! Taking you to your dashboard...");
-
-    setTimeout(() => {
-      navigate("/dashboard", { replace: true });
-    }, 800);
-  }, [searchParams, navigate]);
+    fetch("http://localhost:8080/api/auth/me", {
+      credentials: "include",
+    })
+      .then((res: Response) => {
+        if (res.ok) {
+          setStatus("Success! Taking you to your dashboard...");
+          setTimeout(() => {
+            navigate("/dashboard", { replace: true });
+          }, 800);
+        } else {
+          throw new Error("Auth check failed");
+        }
+      })
+      .catch(() => {
+        setStatus("Login failed — please try again.");
+        setTimeout(() => {
+          navigate("/login?error=auth_failed", { replace: true });
+        }, 2000);
+      });
+  }, [navigate]);
 
   return (
     <div style={styles.page}>
@@ -33,24 +33,24 @@ export default function AuthCallback(): JSX.Element {
         <div style={styles.spinner} />
         <p style={styles.text}>{status}</p>
       </div>
-
-      <style>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
+const styles: {
+  page: React.CSSProperties;
+  card: React.CSSProperties;
+  spinner: React.CSSProperties;
+  text: React.CSSProperties;
+} = {
   page: {
     minHeight: "100vh",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#f9f9f7",
-    fontFamily: "system-ui, -apple-system, sans-serif",
+    fontFamily: "system-ui, sans-serif",
   },
   card: {
     display: "flex",

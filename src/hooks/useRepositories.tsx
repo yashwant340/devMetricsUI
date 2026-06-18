@@ -93,3 +93,68 @@ export function useDisconnectRepo(onSuccess: () => void) {
 
   return { disconnect, loading };
 }
+
+export function useSyncRepo(onComplete: () => void) {
+  const [syncing, setSyncing] = useState<Set<string>>(new Set());
+
+  const sync = async (repoId: string) => {
+    // Mark this repo as syncing
+    setSyncing(prev => new Set(prev).add(repoId));
+
+    try {
+      await apiFetch(`/api/sync/${repoId}`, { method: "POST" });
+
+      // Poll every 3 seconds to check if sync completed
+      const interval = setInterval(async () => {
+        try {
+          const res = await apiFetch(`/api/repositories`);
+          const repos: Repo[] = await res.json();
+          const repo = repos.find(r => r.id === repoId);
+
+          // If lastSyncedAt updated, sync is done
+          if (repo?.lastSyncedAt) {
+            const syncedAt = new Date(repo.lastSyncedAt).getTime();
+            const fiveSecsAgo = Date.now() - 5000;
+
+            if (syncedAt > fiveSecsAgo) {
+              clearInterval(interval);
+              setSyncing(prev => {
+                const next = new Set(prev);
+                next.delete(repoId);
+                return next;
+              });
+              onComplete();
+            }
+          }
+        } catch {
+          clearInterval(interval);
+          setSyncing(prev => {
+            const next = new Set(prev);
+            next.delete(repoId);
+            return next;
+          });
+        }
+      }, 3000);
+
+      // Safety timeout — stop polling after 3 minutes
+      setTimeout(() => {
+        clearInterval(interval);
+        setSyncing(prev => {
+          const next = new Set(prev);
+          next.delete(repoId);
+          return next;
+        });
+        onComplete();
+      }, 180000);
+
+    } catch {
+      setSyncing(prev => {
+        const next = new Set(prev);
+        next.delete(repoId);
+        return next;
+      });
+    }
+  };
+
+  return { sync, syncing };
+}

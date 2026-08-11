@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import apiFetch from "./useApi";
 import type { Repo, GitHubRepo } from "../types/repo";
 
@@ -80,79 +80,103 @@ export function useConnectRepo(onSuccess: () => void) {
 
 export function useDisconnectRepo(onSuccess: () => void) {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const disconnect = async (repoId: string) => {
     setLoading(true);
+    setError(null);
     try {
-      await apiFetch(`/api/repositories/${repoId}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/repositories/${repoId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(detail || "Failed to disconnect repository");
+      }
       onSuccess();
+    } catch (e) {
+      setError((e as Error).message);
     } finally {
       setLoading(false);
     }
   };
 
-  return { disconnect, loading };
+  return { disconnect, loading, error };
 }
 
 export function useSyncRepo(onComplete: () => void) {
   const [syncing, setSyncing] = useState<Set<string>>(new Set());
+  const startedAtRef = useRef(new Map<string, number>());
+  const timeoutIdsRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const hadActiveSyncRef = useRef(false);
 
-  const sync = async (repoId: string) => {
-    // Mark this repo as syncing
-    setSyncing(prev => new Set(prev).add(repoId));
+  const stopSyncing = useCallback((repoId: string) => {
+    startedAtRef.current.delete(repoId);
+    const timeoutId = timeoutIdsRef.current.get(repoId);
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutIdsRef.current.delete(repoId);
+    setSyncing((current) => {
+      const next = new Set(current);
+      next.delete(repoId);
+      return next;
+    });
+  }, []);
 
-    try {
-      await apiFetch(`/api/sync/${repoId}`, { method: "POST" });
+  // One poll checks every active sync. The previous design started one identical
+  // GET /api/repositories interval for each repository being synced.
+  useEffect(() => {
+    if (syncing.size === 0) return;
 
-      // Poll every 3 seconds to check if sync completed
-      const interval = setInterval(async () => {
-        try {
-          const res = await apiFetch(`/api/repositories`);
-          const repos: Repo[] = await res.json();
-          const repo = repos.find(r => r.id === repoId);
+    const poll = async () => {
+      try {
+        const res = await apiFetch("/api/repositories");
+        if (!res.ok) throw new Error("Failed to poll repositories");
+        const repos: Repo[] = await res.json();
 
-          // If lastSyncedAt updated, sync is done
-          if (repo?.lastSyncedAt) {
-            const syncedAt = new Date(repo.lastSyncedAt).getTime();
-            const fiveSecsAgo = Date.now() - 5000;
-
-            if (syncedAt > fiveSecsAgo) {
-              clearInterval(interval);
-              setSyncing(prev => {
-                const next = new Set(prev);
-                next.delete(repoId);
-                return next;
-              });
-              onComplete();
+        syncing.forEach((repoId) => {
+          const repo = repos.find((item) => item.id === repoId);
+          const startedAt = startedAtRef.current.get(repoId);
+          if (repo?.lastSyncedAt && startedAt) {
+            // A timestamp close to the start time can be from the sync just requested.
+            if (new Date(repo.lastSyncedAt).getTime() >= startedAt - 5000) {
+              stopSyncing(repoId);
             }
           }
-        } catch {
-          clearInterval(interval);
-          setSyncing(prev => {
-            const next = new Set(prev);
-            next.delete(repoId);
-            return next;
-          });
-        }
-      }, 3000);
-
-      // Safety timeout — stop polling after 3 minutes
-      setTimeout(() => {
-        clearInterval(interval);
-        setSyncing(prev => {
-          const next = new Set(prev);
-          next.delete(repoId);
-          return next;
         });
-        onComplete();
-      }, 180000);
+      } catch {
+        syncing.forEach(stopSyncing);
+      }
+    };
 
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [syncing, stopSyncing]);
+
+  // Refresh dashboard data once after the final active sync completes.
+  useEffect(() => {
+    if (syncing.size > 0) {
+      hadActiveSyncRef.current = true;
+    } else if (hadActiveSyncRef.current) {
+      hadActiveSyncRef.current = false;
+      onComplete();
+    }
+  }, [syncing, onComplete]);
+
+  useEffect(() => () => {
+    timeoutIdsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+  }, []);
+
+  const sync = async (repoId: string) => {
+    if (syncing.has(repoId)) return;
+    setSyncing(prev => new Set(prev).add(repoId));
+    startedAtRef.current.set(repoId, Date.now());
+
+    try {
+      const res = await apiFetch(`/api/sync/${repoId}`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to start repository sync");
+      timeoutIdsRef.current.set(repoId, setTimeout(() => stopSyncing(repoId), 180000));
     } catch {
-      setSyncing(prev => {
-        const next = new Set(prev);
-        next.delete(repoId);
-        return next;
-      });
+      stopSyncing(repoId);
     }
   };
 

@@ -17,7 +17,7 @@ export default function ConnectRepoModal({ onClose, onConnected }: Props) {
     onClose();
   });
 
-  useEffect(() => { loadRepos(); }, []);
+  useEffect(() => { loadRepos(); }, [loadRepos]);
 
   const filtered = repos.filter((r) =>
     r.full_name.toLowerCase().includes(search.toLowerCase())

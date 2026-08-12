@@ -7,6 +7,7 @@ import {
 } from "../hooks/useRepositories";
 import type { Repo } from "../types/repo";
 import ConnectRepoModal from "../components/ConnectRepoModel";
+import CompareReposModal from "../components/CompareReposModal";
 import { useLatestMetrics, useMetricsHistory } from "../hooks/useMetrics";
 import type { MetricsSnapshot } from "../types/metrics";
 
@@ -14,9 +15,11 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { repos, loading, refetch }   = useConnectedRepos();
   const [showModal, setShowModal] = useState(false);
+  const [showCompareModal, setShowCompareModal] = useState(false);
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [compareRepoId, setCompareRepoId] = useState<string | null>(null);
   const [showAllMetrics, setShowAllMetrics] = useState(false);
+  const [showComparisonTable, setShowComparisonTable] = useState(true);
 
   // Until the user chooses a repository, show the first connected one.
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? repos[0];
@@ -267,11 +270,11 @@ export default function Dashboard() {
                 key={selectedRepo?.id ?? "none"}
                 style={styles.metricsTitleAnimated}
               >
-                {selectedRepo ? selectedRepo.fullName : "Select a repository"}
+                {selectedRepo ? selectedRepo.name : "Select a repository"}
               </div>
               {effectiveCompareRepo && (
                 <div style={styles.metricsSubtitle}>
-                  Comparing with <span style={styles.compareRepoName}>{effectiveCompareRepo.fullName}</span>
+                  Comparing with <span style={styles.compareRepoName}>{effectiveCompareRepo.name}</span>
                 </div>
               )}
             </div>
@@ -279,19 +282,17 @@ export default function Dashboard() {
               {selectedRepo && (
                 <span style={styles.selectedBadge}>Primary</span>
               )}
-              {effectiveCompareRepo ? (
-                <>
-                  <span style={styles.compareBadge}>Compare</span>
-                  <button
-                    style={styles.clearCompareBtn}
-                    onClick={() => setCompareRepoId(null)}
-                  >
-                    Clear
-                  </button>
-                </>
-              ) : (
-                <span style={styles.compareHint}>Pick a repo below to compare</span>
-              )}
+              <button
+                style={{
+                  ...styles.compareTriggerBtn,
+                  opacity: repos.length < 2 ? 0.5 : 1,
+                  cursor: repos.length < 2 ? "not-allowed" : "pointer",
+                }}
+                disabled={repos.length < 2}
+                onClick={() => setShowCompareModal(true)}
+              >
+                {effectiveCompareRepo ? "Change compare" : "Compare repos"}
+              </button>
             </div>
           </div>
           <div
@@ -325,46 +326,6 @@ export default function Dashboard() {
               {showAllMetrics ? "Hide additional metrics" : "Show all metrics"}
             </button>
           </div>
-          {effectiveCompareRepo && (
-            <div style={styles.comparisonPanel}>
-              <div style={styles.comparisonHeader}>
-                <div>
-                  <div style={styles.comparisonEyebrow}>Repository comparison</div>
-                  <div style={styles.comparisonTitle}>
-                    {selectedRepo?.fullName} vs {effectiveCompareRepo.fullName}
-                  </div>
-                </div>
-                <div style={styles.comparisonActions}>
-                  <button
-                    style={styles.swapBtn}
-                    onClick={() => {
-                      if (!selectedRepo) return;
-                      setSelectedRepoId(effectiveCompareRepo.id);
-                      setCompareRepoId(selectedRepo.id);
-                    }}
-                  >
-                    Swap
-                  </button>
-                </div>
-              </div>
-
-              <div style={styles.comparisonTable}>
-                <div style={styles.comparisonTableHead}>
-                  <span>Metric</span>
-                  <span>{selectedRepo?.fullName}</span>
-                  <span>{effectiveCompareRepo.fullName}</span>
-                  <span>Delta</span>
-                </div>
-                {comparisonRows.map((row) => (
-                  <ComparisonRow
-                    key={row.label}
-                    row={row}
-                    loading={metricsLoading || compareMetricsLoading}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
           {insightCards.length > 0 && (
             <div style={styles.insightSection}>
               <div style={styles.insightSectionHeader}>
@@ -436,15 +397,10 @@ export default function Dashboard() {
                   repo={repo}
                   isSyncing={syncing.has(repo.id)}
                   isSelected={selectedRepo?.id === repo.id}
-                  isCompareTarget={effectiveCompareRepo?.id === repo.id}
                   isDisconnecting={disconnecting}
                   onSelect={() => {
                     setSelectedRepoId(repo.id);
-                    if (compareRepoId === repo.id) {
-                      setCompareRepoId(null);
-                    }
                   }}
-                  onCompare={() => setCompareRepoId(repo.id)}
                   onSync={() => sync(repo.id)}
                   onDisconnect={() => disconnect(repo.id)}
                 />
@@ -452,12 +408,89 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+                  {effectiveCompareRepo && (
+            <div style={styles.comparisonPanel}>
+              <div style={styles.comparisonHeader}>
+                <button
+                  type="button"
+                  style={styles.comparisonSummaryBtn}
+                  onClick={() => setShowComparisonTable((visible) => !visible)}
+                  aria-expanded={showComparisonTable}
+                >
+                  <div style={styles.comparisonSummaryLeft}>
+                    <div style={styles.comparisonEyebrow}>Repository comparison</div>
+                    <div style={styles.comparisonTitle}>
+                      {selectedRepo?.name} vs {effectiveCompareRepo.name}
+                    </div>
+                  </div>
+                  <div style={styles.comparisonSummaryMeta}>
+                    <span style={styles.comparisonMetricCount}>
+                      {comparisonRows.length} metrics
+                    </span>
+                    <span style={styles.comparisonChevron}>
+                      {showComparisonTable ? "▾" : "▸"}
+                    </span>
+                  </div>
+                </button>
+                <div style={styles.comparisonActions}>
+                  <button
+                    style={styles.swapBtn}
+                    onClick={() => setShowCompareModal(true)}
+                  >
+                    Change comparison
+                  </button>
+                </div>
+              </div>
+
+              {showComparisonTable ? (
+                <div style={styles.comparisonTable}>
+                  <div style={styles.comparisonTableHead}>
+                    <span>Metric</span>
+                    <span>{selectedRepo?.name}</span>
+                    <span>{effectiveCompareRepo.name}</span>
+                    <span>Delta</span>
+                  </div>
+                  {comparisonRows.map((row) => (
+                    <ComparisonRow
+                      key={row.label}
+                      row={row}
+                      loading={metricsLoading || compareMetricsLoading}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div style={styles.comparisonCollapsed}>
+                  <div style={styles.comparisonCollapsedText}>
+                    {selectedRepo?.name} is currently compared with {effectiveCompareRepo.name}.
+                  </div>
+                  <div style={styles.comparisonCollapsedSubtext}>
+                    Expand the dropdown to see metric-by-metric differences.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
       </main>
 
       {showModal && (
         <ConnectRepoModal
           onClose={() => setShowModal(false)}
           onConnected={refetch}
+        />
+      )}
+
+        {showCompareModal && (
+        <CompareReposModal
+          repos={repos}
+          selectedPrimaryId={selectedRepo?.id ?? null}
+          selectedCompareId={compareRepoId}
+          onClose={() => setShowCompareModal(false)}
+          onApply={(primaryId, compareId) => {
+            setSelectedRepoId(primaryId);
+            setCompareRepoId(compareId);
+            setShowComparisonTable(true);
+            setShowCompareModal(false);
+          }}
         />
       )}
 
@@ -686,20 +719,16 @@ function RepoRow({
   repo,
   isSyncing,
   isSelected,
-  isCompareTarget,
   isDisconnecting,
   onSelect,
-  onCompare,
   onSync,
   onDisconnect,
 }: {
   repo: Repo;
   isSyncing: boolean;
   isSelected: boolean;
-  isCompareTarget: boolean;
   isDisconnecting: boolean;
   onSelect: () => void;
-  onCompare: () => void;
   onSync: () => void;
   onDisconnect: () => void;
 }) {
@@ -726,7 +755,7 @@ function RepoRow({
           {repo.isPrivate && (
             <span style={styles.privateBadge}>Private</span>
           )}
-          <span>{repo.fullName}</span>
+          <span>{repo.name}</span>
           {/* Inline syncing indicator next to repo name */}
           {isSyncing && (
             <span style={styles.syncingPill}>
@@ -787,18 +816,6 @@ function RepoRow({
             ? <><SpinnerIcon size={11} color="#555" /> syncing</>
             : "↻ Sync"
           }
-        </button>
-
-        <button
-          style={{
-            ...styles.compareBtn,
-            ...(isCompareTarget ? styles.compareBtnActive : {}),
-          }}
-          onClick={(event) => { event.stopPropagation(); onCompare(); }}
-          disabled={isSelected || isCompareTarget}
-          title={isSelected ? "Pick a different repo to compare" : "Set as comparison repo"}
-        >
-          {isCompareTarget ? "Compared" : isSelected ? "Primary" : "Compare"}
         </button>
 
         {confirming ? (
@@ -1144,6 +1161,15 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: "wrap",
     justifyContent: "flex-end",
   },
+  compareTriggerBtn: {
+    fontSize: "12px",
+    padding: "6px 10px",
+    color: "#7c3aed",
+    background: "#f5f3ff",
+    border: "0.5px solid #ddd6fe",
+    borderRadius: "6px",
+    cursor: "pointer",
+  },
   metricsPanelMotion: {
     display: "grid",
     gap: "12px",
@@ -1175,6 +1201,40 @@ const styles: Record<string, React.CSSProperties> = {
     gap: "12px",
     marginBottom: "14px",
   },
+  comparisonSummaryBtn: {
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    textAlign: "left",
+    padding: "0",
+    border: "none",
+    background: "transparent",
+    cursor: "pointer",
+    minWidth: 0,
+  },
+  comparisonSummaryLeft: {
+    minWidth: 0,
+  },
+  comparisonSummaryMeta: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    flexShrink: 0,
+  },
+  comparisonMetricCount: {
+    fontSize: "11px",
+    padding: "3px 8px",
+    borderRadius: "999px",
+    background: "#ede9fe",
+    color: "#6d28d9",
+    whiteSpace: "nowrap",
+  },
+  comparisonChevron: {
+    fontSize: "14px",
+    color: "#6b7280",
+  },
   comparisonEyebrow: {
     fontSize: "11px",
     fontWeight: 600,
@@ -1205,6 +1265,23 @@ const styles: Record<string, React.CSSProperties> = {
   comparisonTable: {
     display: "grid",
     gap: "8px",
+  },
+  comparisonCollapsed: {
+    padding: "12px 14px",
+    borderRadius: "12px",
+    background: "#fafafa",
+    border: "0.5px solid rgba(0,0,0,0.06)",
+    display: "grid",
+    gap: "6px",
+  },
+  comparisonCollapsedText: {
+    fontSize: "13px",
+    fontWeight: 600,
+    color: "#111827",
+  },
+  comparisonCollapsedSubtext: {
+    fontSize: "12px",
+    color: "#6b7280",
   },
   comparisonTableHead: {
     display: "grid",
@@ -1351,6 +1428,9 @@ const styles: Record<string, React.CSSProperties> = {
     background: "linear-gradient(90deg, #ece9e4 0%, #f7f4ef 50%, #ece9e4 100%)",
     backgroundSize: "200% 100%",
     animation: "shimmer 1.2s ease-in-out infinite",
+  },
+  sparkline: {
+    display: "block",
   },
   metricValueShell: {
     position: "relative",

@@ -56,10 +56,10 @@ export default function ConnectRepoModal({ onClose, onConnected }: Props) {
             <div style={styles.centered}>
               <span style={styles.hint}>No repos found</span>
             </div>
-          ) : (
-            filtered.map((repo) => (
-              <div
-                key={repo.id}
+              ) : (
+                filtered.map((repo) => (
+                  <div
+                    key={repo.id}
                 style={{
                   ...styles.repoRow,
                   ...(selected?.id === repo.id ? styles.repoRowSelected : {}),
@@ -67,14 +67,15 @@ export default function ConnectRepoModal({ onClose, onConnected }: Props) {
                 onClick={() => setSelected(
                   selected?.id === repo.id ? null : repo
                 )}
-              >
+                >
                 <div style={styles.repoMain}>
                   <div style={styles.repoName}>
                     {repo.private && (
                       <span style={styles.privateBadge}>Private</span>
                     )}
-                    {repo.full_name}
+                    {repo.name}
                   </div>
+                  <div style={styles.repoOwner}>{repo.owner.login}</div>
                   {repo.description && (
                     <div style={styles.repoDesc}>{repo.description}</div>
                   )}
@@ -185,6 +186,11 @@ const styles: Record<string, React.CSSProperties> = {
   repoName: {
     fontSize: "13px", fontWeight: 500, color: "#1a1a1a",
     display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px",
+  },
+  repoOwner: {
+    fontSize: "11px",
+    color: "#6b7280",
+    marginBottom: "5px",
   },
   privateBadge: {
     fontSize: "10px", padding: "1px 6px",

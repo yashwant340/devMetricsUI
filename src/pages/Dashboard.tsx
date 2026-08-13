@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   useConnectedRepos,
@@ -14,6 +14,9 @@ import type { MetricsSnapshot } from "../types/metrics";
 export default function Dashboard() {
   const navigate = useNavigate();
   const { repos, loading, refetch }   = useConnectedRepos();
+  const [user, setUser] = useState<{ login: string; avatar: string; email: string } | null>(null);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [showCompareModal, setShowCompareModal] = useState(false);
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
@@ -56,6 +59,38 @@ export default function Dashboard() {
     });
     navigate("/login", { replace: true });
   };
+
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const res = await fetch("http://localhost:8080/api/auth/me", {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setUser({
+          login: data.login ?? "Profile",
+          avatar: data.avatar ?? "",
+          email: data.email ?? "",
+        });
+      } catch {
+        // ignore and fall back to generic profile icon
+      }
+    };
+
+    loadUser();
+  }, []);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
+        setShowProfileMenu(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
 
   const anySyncing = syncing.size > 0;
 
@@ -255,9 +290,42 @@ export default function Dashboard() {
               <span>Syncing {syncing.size} repo{syncing.size > 1 ? "s" : ""}...</span>
             </div>
           )}
-          <button style={styles.logoutBtn} onClick={handleLogout}>
-            Log out
-          </button>
+          <div style={styles.profileWrap} ref={profileMenuRef}>
+            <button
+              type="button"
+              style={styles.profileBtn}
+              onClick={() => setShowProfileMenu((current) => !current)}
+              aria-label="Open profile menu"
+            >
+              {user?.avatar ? (
+                <img src={user.avatar} alt={user.login} style={styles.profileAvatar} />
+              ) : (
+                <div style={styles.profileFallback}>
+                  {user?.login?.[0]?.toUpperCase() ?? "P"}
+                </div>
+              )}
+            </button>
+
+            {showProfileMenu && (
+              <div style={styles.profileMenu}>
+                <div style={styles.profileMenuHeader}>
+                  <div style={styles.profileMenuTitle}>Profile</div>
+                  <div style={styles.profileMenuSubtext}>Signed in with GitHub</div>
+                </div>
+                <div style={styles.profileMenuInfo}>
+                  <div style={styles.profileMenuName}>{user?.login ?? "Your account"}</div>
+                  {user?.email && <div style={styles.profileMenuEmail}>{user.email}</div>}
+                </div>
+                <button
+                  type="button"
+                  style={styles.profileMenuLogout}
+                  onClick={handleLogout}
+                >
+                  Logout
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </nav>
 
@@ -1080,79 +1148,216 @@ function buildInsights(
 
 const styles: Record<string, React.CSSProperties> = {
   page: {
-    minHeight: "100vh", backgroundColor: "#f9f9f7",
-    fontFamily: "system-ui, -apple-system, sans-serif",
+    minHeight: "100vh",
+    background:
+      "radial-gradient(circle at top left, rgba(224, 231, 255, 0.65), transparent 28%), radial-gradient(circle at top right, rgba(236, 253, 245, 0.8), transparent 24%), linear-gradient(180deg, #f8fafc 0%, #f3f4f6 56%, #eef2f7 100%)",
+    fontFamily:
+      "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    color: "#0f172a",
   },
   nav: {
-    display: "flex", alignItems: "center",
+    display: "flex",
+    alignItems: "center",
     justifyContent: "space-between",
-    padding: "0 1.5rem", height: "56px",
-    background: "#fff", borderBottom: "0.5px solid rgba(0,0,0,0.08)",
+    padding: "0 1.5rem",
+    height: "64px",
+    position: "sticky",
+    top: 0,
+    zIndex: 20,
+    background: "rgba(255,255,255,0.72)",
+    backdropFilter: "blur(18px)",
+    borderBottom: "1px solid rgba(148,163,184,0.18)",
+    boxShadow: "0 8px 30px rgba(15,23,42,0.04)",
   },
   navLeft: { display: "flex", alignItems: "center", gap: "10px" },
-  navBrand: { fontSize: "15px", fontWeight: 500, color: "#1a1a1a" },
+  navBrand: { fontSize: "15px", fontWeight: 650, color: "#0f172a", letterSpacing: "-0.01em" },
   navRight: { display: "flex", alignItems: "center", gap: "12px" },
   navSyncBadge: {
-    display: "flex", alignItems: "center", gap: "6px",
-    fontSize: "12px", color: "#b45309",
-    background: "#fffbeb", border: "0.5px solid #fcd34d",
-    borderRadius: "20px", padding: "4px 10px",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    fontSize: "12px",
+    color: "#92400e",
+    background: "rgba(255,251,235,0.92)",
+    border: "1px solid rgba(245,158,11,0.22)",
+    borderRadius: "999px",
+    padding: "5px 10px",
     animation: "pulse 2s ease-in-out infinite",
   },
-  logoutBtn: {
-    fontSize: "13px", padding: "6px 14px", background: "transparent",
-    border: "0.5px solid rgba(0,0,0,0.15)",
-    borderRadius: "6px", cursor: "pointer", color: "#555",
+  profileWrap: {
+    position: "relative",
   },
-  main: { maxWidth: "960px", margin: "0 auto", padding: "2rem 1.5rem" },
-  metricsSection: { marginBottom: "1.5rem" },
+  profileBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "6px 6px 6px 6px",
+    background: "rgba(255,255,255,0.96)",
+    border: "1px solid rgba(148,163,184,0.28)",
+    borderRadius: "999px",
+    cursor: "pointer",
+    color: "#475569",
+    boxShadow: "0 8px 24px rgba(15,23,42,0.06)",
+    minHeight: "40px",
+  },
+  profileAvatar: {
+    width: "28px",
+    height: "28px",
+    borderRadius: "999px",
+    objectFit: "cover",
+    display: "block",
+  },
+  profileFallback: {
+    width: "28px",
+    height: "28px",
+    borderRadius: "999px",
+    display: "grid",
+    placeItems: "center",
+    background: "linear-gradient(180deg, #0f172a 0%, #111827 100%)",
+    color: "#fff",
+    fontSize: "12px",
+    fontWeight: 700,
+  },
+  profileChevron: {
+    fontSize: "11px",
+    color: "#64748b",
+    lineHeight: 1,
+    marginLeft: "2px",
+  },
+  profileLabel: {
+    fontSize: "13px",
+    fontWeight: 600,
+    color: "#334155",
+  },
+  profileMenu: {
+    position: "absolute",
+    right: 0,
+    top: "calc(100% + 12px)",
+    minWidth: "240px",
+    background: "rgba(255,255,255,0.98)",
+    border: "1px solid rgba(148,163,184,0.22)",
+    borderRadius: "18px",
+    boxShadow: "0 28px 80px rgba(15,23,42,0.18)",
+    backdropFilter: "blur(18px)",
+    padding: "0.9rem",
+    zIndex: 60,
+  },
+  profileMenuHeader: {
+    paddingBottom: "0.75rem",
+    borderBottom: "1px solid rgba(148,163,184,0.12)",
+    marginBottom: "0.75rem",
+  },
+  profileMenuTitle: {
+    fontSize: "12px",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    color: "#64748b",
+    marginBottom: "6px",
+  },
+  profileMenuSubtext: {
+    fontSize: "12px",
+    color: "#94a3b8",
+  },
+  profileMenuInfo: {
+    marginBottom: "0.75rem",
+  },
+  profileMenuName: {
+    fontSize: "14px",
+    fontWeight: 700,
+    color: "#0f172a",
+    marginBottom: "3px",
+    wordBreak: "break-word",
+  },
+  profileMenuEmail: {
+    fontSize: "12px",
+    color: "#64748b",
+    wordBreak: "break-word",
+  },
+  profileMenuLogout: {
+    width: "100%",
+    fontSize: "13px",
+    padding: "9px 12px",
+    background: "rgba(254,242,242,0.95)",
+    border: "1px solid rgba(248,113,113,0.22)",
+    borderRadius: "12px",
+    cursor: "pointer",
+    color: "#b91c1c",
+    textAlign: "left",
+  },
+  main: {
+    width: "100%",
+    maxWidth: "none",
+    margin: 0,
+    padding: "1.5rem clamp(1rem, 2vw, 2rem) 2.5rem",
+  },
+  metricsSection: {
+    marginBottom: "1.5rem",
+    padding: "1.25rem clamp(1rem, 1.5vw, 1.25rem)",
+    border: "1px solid rgba(148,163,184,0.18)",
+    borderRadius: "24px",
+    background: "rgba(255,255,255,0.72)",
+    boxShadow: "0 20px 60px rgba(15,23,42,0.06)",
+    backdropFilter: "blur(14px)",
+  },
   metricsHeader: {
-    display: "flex", alignItems: "center", justifyContent: "space-between",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: "10px",
+    gap: "16px",
   },
   metricsEyebrow: {
-    fontSize: "11px", fontWeight: 600, textTransform: "uppercase",
-    letterSpacing: "0.08em", color: "#888", marginBottom: "3px",
+    fontSize: "11px",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    color: "#64748b",
+    marginBottom: "4px",
   },
-  metricsTitle: { fontSize: "16px", fontWeight: 600, color: "#1a1a1a" },
+  metricsTitle: { fontSize: "18px", fontWeight: 700, color: "#0f172a", letterSpacing: "-0.02em" },
   metricsTitleAnimated: {
-    fontSize: "16px",
-    fontWeight: 600,
-    color: "#1a1a1a",
+    fontSize: "18px",
+    fontWeight: 700,
+    color: "#0f172a",
+    letterSpacing: "-0.02em",
     animation: "fadeInUp 180ms ease-out",
   },
   metricsSubtitle: {
-    marginTop: "4px",
-    fontSize: "12px",
-    color: "#6b7280",
+    marginTop: "5px",
+    fontSize: "13px",
+    color: "#64748b",
   },
   compareRepoName: {
-    color: "#0369a1",
+    color: "#0f766e",
     fontWeight: 600,
   },
   selectedBadge: {
-    fontSize: "11px", padding: "3px 9px", background: "#e0f2fe",
-    color: "#0369a1", borderRadius: "20px",
+    fontSize: "11px",
+    padding: "4px 10px",
+    background: "rgba(14,165,233,0.1)",
+    color: "#0369a1",
+    borderRadius: "999px",
   },
   compareBadge: {
     fontSize: "11px",
-    padding: "3px 9px",
-    background: "#f3e8ff",
+    padding: "4px 10px",
+    background: "rgba(168,85,247,0.1)",
     color: "#7e22ce",
-    borderRadius: "20px",
+    borderRadius: "999px",
   },
   clearCompareBtn: {
     fontSize: "11px",
-    padding: "3px 9px",
-    background: "transparent",
-    border: "0.5px solid rgba(0,0,0,0.12)",
-    borderRadius: "20px",
-    color: "#6b7280",
+    padding: "4px 10px",
+    background: "rgba(255,255,255,0.82)",
+    border: "1px solid rgba(148,163,184,0.18)",
+    borderRadius: "999px",
+    color: "#64748b",
     cursor: "pointer",
   },
   compareHint: {
     fontSize: "12px",
-    color: "#9ca3af",
+    color: "#64748b",
   },
   headerPills: {
     display: "flex",
@@ -1163,36 +1368,47 @@ const styles: Record<string, React.CSSProperties> = {
   },
   compareTriggerBtn: {
     fontSize: "12px",
-    padding: "6px 10px",
-    color: "#7c3aed",
-    background: "#f5f3ff",
-    border: "0.5px solid #ddd6fe",
-    borderRadius: "6px",
+    padding: "7px 12px",
+    color: "#6d28d9",
+    background: "rgba(245,243,255,0.9)",
+    border: "1px solid rgba(196,181,253,0.5)",
+    borderRadius: "999px",
     cursor: "pointer",
   },
   metricsPanelMotion: {
     display: "grid",
-    gap: "12px",
+    gap: "14px",
     animation: "fadeInUp 180ms ease-out",
   },
   metricsGrid: {
-    display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))",
-    gap: "12px",
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "14px",
   },
   moreMetricsControl: { display: "flex", justifyContent: "flex-end", marginTop: "10px" },
   moreMetricsBtn: {
-    fontSize: "12px", padding: "6px 10px", color: "#0369a1", background: "#f0f9ff",
-    border: "0.5px solid #bae6fd", borderRadius: "6px", cursor: "pointer",
+    fontSize: "12px",
+    padding: "7px 12px",
+    color: "#0369a1",
+    background: "rgba(240,249,255,0.9)",
+    border: "1px solid rgba(125,211,252,0.5)",
+    borderRadius: "999px",
+    cursor: "pointer",
   },
   additionalMetricsGrid: {
-    display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: "12px", marginTop: "12px",
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "14px",
+    marginTop: "14px",
   },
   comparisonPanel: {
     marginTop: "18px",
     padding: "1rem 1.25rem 1.25rem",
-    borderTop: "0.5px solid rgba(0,0,0,0.06)",
-    background: "linear-gradient(180deg, #fafafa 0%, #fff 100%)",
+    border: "1px solid rgba(148,163,184,0.18)",
+    borderRadius: "20px",
+    background:
+      "linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(248,250,252,0.9) 100%)",
+    boxShadow: "0 18px 45px rgba(15,23,42,0.05)",
   },
   comparisonHeader: {
     display: "flex",
@@ -1200,6 +1416,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     gap: "12px",
     marginBottom: "14px",
+    flexWrap: "wrap",
   },
   comparisonSummaryBtn: {
     flex: 1,
@@ -1225,9 +1442,9 @@ const styles: Record<string, React.CSSProperties> = {
   },
   comparisonMetricCount: {
     fontSize: "11px",
-    padding: "3px 8px",
+    padding: "4px 9px",
     borderRadius: "999px",
-    background: "#ede9fe",
+    background: "rgba(233,213,255,0.65)",
     color: "#6d28d9",
     whiteSpace: "nowrap",
   },
@@ -1244,33 +1461,34 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: "3px",
   },
   comparisonTitle: {
-    fontSize: "14px",
-    fontWeight: 600,
-    color: "#1a1a1a",
+    fontSize: "15px",
+    fontWeight: 700,
+    color: "#0f172a",
   },
   comparisonActions: {
     display: "flex",
     alignItems: "center",
     gap: "8px",
+    flexWrap: "wrap",
   },
   swapBtn: {
     fontSize: "12px",
-    padding: "6px 10px",
-    background: "#fff",
-    border: "0.5px solid rgba(0,0,0,0.12)",
-    borderRadius: "6px",
+    padding: "7px 12px",
+    background: "rgba(255,255,255,0.9)",
+    border: "1px solid rgba(148,163,184,0.2)",
+    borderRadius: "999px",
     cursor: "pointer",
-    color: "#555",
+    color: "#475569",
   },
   comparisonTable: {
     display: "grid",
     gap: "8px",
   },
   comparisonCollapsed: {
-    padding: "12px 14px",
-    borderRadius: "12px",
-    background: "#fafafa",
-    border: "0.5px solid rgba(0,0,0,0.06)",
+    padding: "13px 14px",
+    borderRadius: "14px",
+    background: "rgba(248,250,252,0.95)",
+    border: "1px solid rgba(148,163,184,0.12)",
     display: "grid",
     gap: "6px",
   },
@@ -1285,27 +1503,29 @@ const styles: Record<string, React.CSSProperties> = {
   },
   comparisonTableHead: {
     display: "grid",
-    gridTemplateColumns: "1.6fr 1fr 1fr 0.8fr",
+    gridTemplateColumns:
+      "minmax(180px, 1.6fr) repeat(2, minmax(120px, 1fr)) minmax(80px, 0.8fr)",
     gap: "10px",
     fontSize: "11px",
-    fontWeight: 600,
+    fontWeight: 700,
     textTransform: "uppercase",
-    letterSpacing: "0.08em",
-    color: "#9ca3af",
+    letterSpacing: "0.1em",
+    color: "#94a3b8",
     padding: "0 4px",
   },
   comparisonRow: {
     display: "grid",
-    gridTemplateColumns: "1.6fr 1fr 1fr 0.8fr",
+    gridTemplateColumns:
+      "minmax(180px, 1.6fr) repeat(2, minmax(120px, 1fr)) minmax(80px, 0.8fr)",
     gap: "10px",
     alignItems: "center",
     padding: "10px 4px",
-    borderTop: "0.5px solid rgba(0,0,0,0.06)",
+    borderTop: "1px solid rgba(148,163,184,0.12)",
   },
   comparisonMetricName: {
     fontSize: "13px",
-    fontWeight: 500,
-    color: "#1f2937",
+    fontWeight: 600,
+    color: "#1e293b",
   },
   comparisonValueShell: {
     position: "relative",
@@ -1314,7 +1534,7 @@ const styles: Record<string, React.CSSProperties> = {
   comparisonValue: {
     fontSize: "13px",
     fontWeight: 600,
-    color: "#111827",
+    color: "#0f172a",
     transition: "opacity 180ms ease",
   },
   comparisonValueSkeleton: {
@@ -1336,7 +1556,7 @@ const styles: Record<string, React.CSSProperties> = {
   comparisonDelta: {
     fontSize: "12px",
     fontWeight: 600,
-    color: "#6b7280",
+    color: "#64748b",
     justifySelf: "end",
   },
   comparisonDeltaGood: {
@@ -1348,7 +1568,10 @@ const styles: Record<string, React.CSSProperties> = {
   insightSection: {
     marginTop: "18px",
     padding: "1rem 1.25rem 1.25rem",
-    borderTop: "0.5px solid rgba(0,0,0,0.06)",
+    border: "1px solid rgba(148,163,184,0.18)",
+    borderRadius: "20px",
+    background: "rgba(255,255,255,0.72)",
+    boxShadow: "0 18px 45px rgba(15,23,42,0.04)",
   },
   insightSectionHeader: {
     display: "flex",
@@ -1365,20 +1588,20 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: "3px",
   },
   insightSectionTitle: {
-    fontSize: "14px",
-    fontWeight: 600,
-    color: "#1a1a1a",
+    fontSize: "15px",
+    fontWeight: 700,
+    color: "#0f172a",
   },
   insightGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
     gap: "12px",
   },
   insightCard: {
-    borderRadius: "12px",
+    borderRadius: "16px",
     padding: "14px",
-    background: "#fff",
-    border: "0.5px solid rgba(0,0,0,0.08)",
+    background: "rgba(255,255,255,0.92)",
+    border: "1px solid rgba(148,163,184,0.14)",
   },
   insightCardGood: {
     background: "#f0fdf4",
@@ -1391,20 +1614,24 @@ const styles: Record<string, React.CSSProperties> = {
   insightTitle: {
     fontSize: "13px",
     fontWeight: 600,
-    color: "#111827",
+    color: "#0f172a",
     marginBottom: "6px",
   },
   insightBody: {
     fontSize: "12px",
     lineHeight: 1.5,
-    color: "#4b5563",
+    color: "#475569",
   },
   metricCard: {
-    background: "#fff", border: "0.5px solid rgba(0,0,0,0.08)",
-    borderRadius: "10px", padding: "1rem",
+    background:
+      "linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(248,250,252,0.92) 100%)",
+    border: "1px solid rgba(148,163,184,0.14)",
+    borderRadius: "18px",
+    padding: "1rem",
+    boxShadow: "0 12px 30px rgba(15,23,42,0.04)",
   },
   compactMetricCard: { padding: "0.875rem" },
-  metricLabel: { fontSize: "12px", color: "#aaa", marginBottom: "6px" },
+  metricLabel: { fontSize: "12px", color: "#64748b", marginBottom: "6px", fontWeight: 600 },
   metricCardFooter: {
     marginTop: "10px",
     display: "grid",
@@ -1413,7 +1640,7 @@ const styles: Record<string, React.CSSProperties> = {
   metricTrend: {
     fontSize: "11px",
     fontWeight: 600,
-    color: "#6b7280",
+    color: "#64748b",
     letterSpacing: "0.01em",
   },
   metricTrendGood: {
@@ -1438,8 +1665,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   metricValue: {
     fontSize: "24px",
-    fontWeight: 500,
-    color: "#1a1a1a",
+    fontWeight: 700,
+    color: "#0f172a",
     transition: "opacity 180ms ease",
   },
   metricSkeleton: {
@@ -1463,14 +1690,21 @@ const styles: Record<string, React.CSSProperties> = {
     height: "16px",
   },
   panel: {
-    background: "#fff", border: "0.5px solid rgba(0,0,0,0.08)",
-    borderRadius: "12px", overflow: "hidden",
+    background: "rgba(255,255,255,0.82)",
+    border: "1px solid rgba(148,163,184,0.16)",
+    borderRadius: "20px",
+    overflow: "hidden",
+    boxShadow: "0 18px 40px rgba(15,23,42,0.05)",
+    width: "100%",
   },
   panelHeader: {
-    display: "flex", alignItems: "center",
+    display: "flex",
+    alignItems: "center",
     justifyContent: "space-between",
-    padding: "14px 1.25rem",
-    borderBottom: "0.5px solid rgba(0,0,0,0.06)",
+    padding: "16px 1.25rem",
+    borderBottom: "1px solid rgba(148,163,184,0.12)",
+    gap: "12px",
+    flexWrap: "wrap",
   },
   panelError: {
     margin: "12px 1.25rem 0",
@@ -1483,118 +1717,166 @@ const styles: Record<string, React.CSSProperties> = {
   },
   panelHeaderLeft: { display: "flex", alignItems: "center", gap: "10px" },
   panelHeaderRight: { display: "flex", alignItems: "center", gap: "8px" },
-  panelTitle: { fontSize: "14px", fontWeight: 500, color: "#1a1a1a" },
+  panelTitle: { fontSize: "14px", fontWeight: 700, color: "#0f172a" },
   panelSyncNote: { fontSize: "12px", color: "#b45309" },
   syncAllBtn: {
-    fontSize: "12px", padding: "6px 12px", background: "transparent",
-    border: "0.5px solid rgba(0,0,0,0.15)",
-    borderRadius: "6px", color: "#555",
+    fontSize: "12px",
+    padding: "7px 12px",
+    background: "rgba(255,255,255,0.88)",
+    border: "1px solid rgba(148,163,184,0.22)",
+    borderRadius: "999px",
+    color: "#475569",
   },
   connectBtn: {
-    fontSize: "13px", padding: "7px 14px",
-    background: "#1a1a1a", color: "#fff",
-    border: "none", borderRadius: "7px", cursor: "pointer",
+    fontSize: "13px",
+    padding: "8px 14px",
+    background: "linear-gradient(180deg, #0f172a 0%, #111827 100%)",
+    color: "#fff",
+    border: "none",
+    borderRadius: "999px",
+    cursor: "pointer",
+    boxShadow: "0 10px 20px rgba(15,23,42,0.12)",
   },
   centered: {
     display: "flex", justifyContent: "center",
     alignItems: "center", padding: "3rem",
   },
   repoRow: {
-    display: "flex", alignItems: "flex-start",
+    display: "flex",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     padding: "14px 1.25rem",
-    borderBottom: "0.5px solid rgba(0,0,0,0.05)",
+    borderBottom: "1px solid rgba(148,163,184,0.1)",
     cursor: "pointer",
+    transition: "background 160ms ease, transform 160ms ease, box-shadow 160ms ease",
   },
-  repoRowSelected: { boxShadow: "inset 3px 0 0 #0284c7" },
+  repoRowSelected: {
+    boxShadow: "inset 3px 0 0 #0ea5e9",
+    background: "linear-gradient(90deg, rgba(14,165,233,0.06), transparent 30%)",
+  },
   repoInfo: { flex: 1 },
   repoName: {
-    fontSize: "14px", fontWeight: 500, color: "#1a1a1a",
+    fontSize: "14px",
+    fontWeight: 700,
+    color: "#0f172a",
     display: "flex", alignItems: "center",
     gap: "6px", marginBottom: "3px", flexWrap: "wrap",
   },
   privateBadge: {
     fontSize: "10px", padding: "1px 6px",
-    background: "#f4f3ee", color: "#888", borderRadius: "4px",
+    background: "rgba(241,245,249,0.95)", color: "#64748b", borderRadius: "999px",
   },
   syncingPill: {
     display: "inline-flex", alignItems: "center", gap: "4px",
     fontSize: "11px", padding: "2px 8px",
-    background: "#fffbeb", color: "#b45309",
-    border: "0.5px solid #fcd34d", borderRadius: "20px",
+    background: "rgba(255,251,235,0.95)", color: "#b45309",
+    border: "1px solid rgba(245,158,11,0.22)", borderRadius: "999px",
   },
   repoDesc: {
-    fontSize: "12px", color: "#999",
+    fontSize: "12px", color: "#64748b",
     marginBottom: "6px", lineHeight: "1.4",
   },
   repoMeta: { display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "6px" },
   metaChip: {
     fontSize: "11px", padding: "2px 8px",
-    background: "#f4f3ee", color: "#888", borderRadius: "20px",
+    background: "rgba(241,245,249,0.95)", color: "#64748b", borderRadius: "999px",
   },
   syncingChip: {
-    background: "#fffbeb", color: "#b45309",
+    background: "rgba(255,251,235,0.95)", color: "#b45309",
     animation: "pulse 1.5s ease-in-out infinite",
   },
-  syncedChip: { background: "#f0fdf4", color: "#16a34a" },
-  neverSyncedChip: { background: "#fffbeb", color: "#d97706" },
+  syncedChip: { background: "rgba(240,253,244,0.95)", color: "#16a34a" },
+  neverSyncedChip: { background: "rgba(255,251,235,0.95)", color: "#d97706" },
   progressWrap: {
-    height: "3px", background: "#f4f3ee",
-    borderRadius: "2px", overflow: "hidden",
+    height: "4px",
+    background: "rgba(226,232,240,0.9)",
+    borderRadius: "999px",
+    overflow: "hidden",
     marginTop: "6px", width: "100%",
   },
   progressBar: {
     height: "100%", width: "40%",
-    background: "#f59e0b", borderRadius: "2px",
+    background: "linear-gradient(90deg, #f59e0b 0%, #fb923c 100%)",
+    borderRadius: "999px",
     animation: "progress 1.5s ease-in-out infinite alternate",
   },
   actions: {
-    display: "flex", gap: "6px",
-    alignItems: "center", paddingLeft: "12px", flexShrink: 0,
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+    paddingLeft: "12px",
+    flexShrink: 0,
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
   },
   syncBtn: {
-    display: "inline-flex", alignItems: "center", gap: "5px",
-    fontSize: "12px", padding: "5px 12px", background: "transparent",
-    border: "0.5px solid rgba(0,0,0,0.15)",
-    borderRadius: "6px", color: "#555",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "5px",
+    fontSize: "12px",
+    padding: "6px 12px",
+    background: "rgba(255,255,255,0.88)",
+    border: "1px solid rgba(148,163,184,0.2)",
+    borderRadius: "999px",
+    color: "#475569",
   },
   compareBtn: {
     fontSize: "12px",
-    padding: "5px 12px",
-    background: "transparent",
-    border: "0.5px solid rgba(124,58,237,0.28)",
-    borderRadius: "6px",
+    padding: "6px 12px",
+    background: "rgba(245,243,255,0.9)",
+    border: "1px solid rgba(124,58,237,0.24)",
+    borderRadius: "999px",
     cursor: "pointer",
     color: "#7c3aed",
   },
   compareBtnActive: {
-    background: "#f3e8ff",
-    borderColor: "#c084fc",
+    background: "rgba(233,213,255,0.8)",
+    borderColor: "rgba(192,132,252,0.9)",
   },
   disconnectBtn: {
-    fontSize: "12px", padding: "5px 12px", background: "transparent",
-    border: "0.5px solid rgba(0,0,0,0.12)",
-    borderRadius: "6px", cursor: "pointer", color: "#bbb",
+    fontSize: "12px",
+    padding: "6px 12px",
+    background: "rgba(255,255,255,0.88)",
+    border: "1px solid rgba(148,163,184,0.18)",
+    borderRadius: "999px",
+    cursor: "pointer",
+    color: "#94a3b8",
   },
   confirmBtn: {
-    fontSize: "12px", padding: "5px 12px",
-    background: "#fee2e2", color: "#b91c1c",
-    border: "0.5px solid #fca5a5", borderRadius: "6px", cursor: "pointer",
+    fontSize: "12px",
+    padding: "6px 12px",
+    background: "rgba(254,226,226,0.95)",
+    color: "#b91c1c",
+    border: "1px solid rgba(248,113,113,0.28)",
+    borderRadius: "999px",
+    cursor: "pointer",
   },
   cancelBtn: {
-    fontSize: "12px", padding: "5px 12px", background: "transparent",
-    border: "0.5px solid rgba(0,0,0,0.12)",
-    borderRadius: "6px", cursor: "pointer", color: "#999",
+    fontSize: "12px",
+    padding: "6px 12px",
+    background: "rgba(255,255,255,0.88)",
+    border: "1px solid rgba(148,163,184,0.18)",
+    borderRadius: "999px",
+    cursor: "pointer",
+    color: "#64748b",
   },
   emptyState: {
-    display: "flex", flexDirection: "column",
-    alignItems: "center", padding: "3rem 1rem", gap: "12px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    padding: "3rem 1rem",
+    gap: "12px",
   },
-  emptyText: { fontSize: "13px", color: "#bbb", margin: 0, textAlign: "center" },
+  emptyText: { fontSize: "13px", color: "#94a3b8", margin: 0, textAlign: "center" },
   emptyConnectBtn: {
-    fontSize: "13px", padding: "8px 18px",
-    background: "#1a1a1a", color: "#fff",
-    border: "none", borderRadius: "7px", cursor: "pointer",
+    fontSize: "13px",
+    padding: "9px 18px",
+    background: "linear-gradient(180deg, #0f172a 0%, #111827 100%)",
+    color: "#fff",
+    border: "none",
+    borderRadius: "999px",
+    cursor: "pointer",
+    boxShadow: "0 10px 20px rgba(15,23,42,0.12)",
   },
 };
 

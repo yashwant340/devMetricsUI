@@ -19,10 +19,15 @@ export default function Dashboard() {
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [showCompareModal, setShowCompareModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [compareRepoId, setCompareRepoId] = useState<string | null>(null);
   const [showAllMetrics, setShowAllMetrics] = useState(false);
   const [showComparisonTable, setShowComparisonTable] = useState(true);
+  const [exportScope, setExportScope] = useState<"current" | "all">("current");
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportFormat, setExportFormat] = useState<"json" | "csv" | "md">("json");
 
   // Until the user chooses a repository, show the first connected one.
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? repos[0];
@@ -269,6 +274,76 @@ export default function Dashboard() {
       betterWhenLower: false,
     },
   ] : [];
+
+  const exportableCurrentRepo = selectedRepo
+    ? {
+        id: selectedRepo.id,
+        name: selectedRepo.name,
+        fullName: selectedRepo.fullName,
+        ownerLogin: selectedRepo.ownerLogin,
+        description: selectedRepo.description,
+        language: selectedRepo.language,
+        starsCount: selectedRepo.starsCount,
+        defaultBranch: selectedRepo.defaultBranch,
+        lastSyncedAt: selectedRepo.lastSyncedAt,
+        metrics: selectedSnapshot,
+        history: selectedHistory,
+      }
+    : null;
+  const handleDownloadReport = useCallback(async () => {
+    setExportLoading(true);
+    setExportError(null);
+    try {
+      const selectedRepoPayload = exportScope === "current" && exportableCurrentRepo
+        ? exportableCurrentRepo
+        : null;
+
+      const reportRepoList = exportScope === "all"
+        ? await Promise.all(
+            repos.map(async (repo) => {
+              const latestRes = await fetch(`http://localhost:8080/api/metrics/${repo.id}/latest`, {
+                credentials: "include",
+              });
+
+              const latest = latestRes.ok ? await latestRes.json().catch(() => null) : null;
+
+              return {
+                id: repo.id,
+                name: repo.name,
+                fullName: repo.fullName,
+                ownerLogin: repo.ownerLogin,
+                description: repo.description,
+                language: repo.language,
+                starsCount: repo.starsCount,
+                defaultBranch: repo.defaultBranch,
+                isPrivate: repo.isPrivate,
+                lastSyncedAt: repo.lastSyncedAt,
+                createdAt: repo.createdAt,
+                metrics: latest,
+              };
+            }),
+          )
+        : [];
+
+      await downloadReport({
+        format: exportFormat,
+        currentRepo: selectedRepoPayload,
+        repoList: reportRepoList,
+      });
+      setShowExportModal(false);
+    } catch (error) {
+      setExportError((error as Error).message || "Failed to prepare export");
+    } finally {
+      setExportLoading(false);
+    }
+  }, [
+    comparisonRows,
+    effectiveCompareRepo,
+    exportFormat,
+    exportScope,
+    exportableCurrentRepo,
+    repos,
+  ]);
   return (
     <div style={styles.page}>
       <nav style={styles.nav}>
@@ -437,6 +512,13 @@ export default function Dashboard() {
                 </button>
               )}
               <button
+                type="button"
+                style={styles.exportTriggerBtn}
+                onClick={() => setShowExportModal(true)}
+              >
+                Export report
+              </button>
+              <button
                 style={styles.connectBtn}
                 onClick={() => setShowModal(true)}
               >
@@ -538,6 +620,94 @@ export default function Dashboard() {
               )}
             </div>
           )}
+        {showExportModal && (
+          <div style={styles.exportOverlay} onClick={() => setShowExportModal(false)}>
+            <div style={styles.exportModal} onClick={(event) => event.stopPropagation()}>
+              <div style={styles.exportHeader}>
+                <div>
+                  <div style={styles.exportTitle}>Export report</div>
+                  <div style={styles.exportSubtitle}>
+                    Export the data already loaded in the dashboard. Choose either the current repo or all repos.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  style={styles.closeBtn}
+                  onClick={() => setShowExportModal(false)}
+                >
+                  ✕
+                </button>
+              </div>
+              <div style={styles.exportBody}>
+                <div style={styles.exportSection}>
+                  <div style={styles.exportSectionTitle}>What to export</div>
+                  <div style={styles.exportScopeRow}>
+                    <button
+                      type="button"
+                      style={{
+                        ...styles.exportScopeBtn,
+                        ...(exportScope === "current" ? styles.exportScopeBtnActive : {}),
+                      }}
+                      onClick={() => setExportScope("current")}
+                    >
+                      Current repo
+                    </button>
+                    <button
+                      type="button"
+                      style={{
+                        ...styles.exportScopeBtn,
+                        ...(exportScope === "all" ? styles.exportScopeBtnActive : {}),
+                      }}
+                      onClick={() => setExportScope("all")}
+                    >
+                      All repos
+                    </button>
+                  </div>
+                  <div style={styles.exportScopeHint}>
+                    {exportScope === "current" && `Exports the selected repo with all latest metrics and history.`}
+                    {exportScope === "all" && `Fetches the latest snapshot for every connected repo before building the report.`}
+                  </div>
+                </div>
+                <div style={styles.exportSection}>
+                  <div style={styles.exportSectionTitle}>Format</div>
+                  <div style={styles.exportFormatRow}>
+                    {(["json", "csv", "md"] as const).map((format) => (
+                      <button
+                        key={format}
+                        type="button"
+                        style={{
+                          ...styles.exportFormatBtn,
+                          ...(exportFormat === format ? styles.exportFormatBtnActive : {}),
+                        }}
+                        onClick={() => setExportFormat(format)}
+                      >
+                        {format.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div style={styles.exportFooter}>
+                <button
+                  type="button"
+                  style={styles.cancelBtn}
+                  onClick={() => setShowExportModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  style={styles.connectBtn}
+                  disabled={exportLoading}
+                  onClick={handleDownloadReport}
+                >
+                  {exportLoading ? "Preparing..." : "Download report"}
+                </button>
+              </div>
+              {exportError && <div style={styles.exportError}>{exportError}</div>}
+            </div>
+          </div>
+        )}
       </main>
 
       {showModal && (
@@ -1144,6 +1314,183 @@ function buildInsights(
   return insights;
 }
 
+function downloadReport({
+  format,
+  currentRepo,
+  repoList,
+}: {
+  format: "json" | "csv" | "md";
+  currentRepo: Record<string, unknown> | null;
+  repoList: Array<Record<string, unknown>>;
+}) {
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    currentRepo: currentRepo ? formatRepoForExport(currentRepo) : null,
+    repoList: repoList.map((repo) => formatRepoForExport(repo)),
+  };
+
+  let content = "";
+  let mimeType = "application/json";
+  let extension = "json";
+
+  if (format === "json") {
+    content = JSON.stringify(payload, null, 2);
+  } else if (format === "csv") {
+    extension = "csv";
+    mimeType = "text/csv";
+    const rows: Array<Record<string, string>> = [];
+    if (currentRepo) rows.push(flattenRepoForCsv(currentRepo));
+    if (repoList.length > 0) {
+      rows.push(...repoList.map((repo) => flattenRepoForCsv(repo)));
+    }
+
+    const headers = Array.from(
+      rows.reduce((set, row) => {
+        Object.keys(row).forEach((key) => {
+          if (key !== "Metrics" && key !== "History" && key !== "Repository") {
+            set.add(key);
+          }
+        });
+        return set;
+      }, new Set<string>()),
+    );
+
+    const lines = [
+      headers.map((header) => escapeCsv(readableLabel(header))).join(","),
+      ...rows.map((row) => headers.map((header) => escapeCsv(row[header] ?? "")).join(",")),
+    ];
+
+    content = lines.join("\n");
+  } else {
+    extension = "md";
+    mimeType = "text/markdown";
+    const md: string[] = [];
+    md.push("# DevMetrics Report");
+    md.push(`Generated at: ${new Date(payload.generatedAt).toLocaleString()}`);
+    if (currentRepo) {
+      md.push("\n## Current repository");
+      md.push(repoBlock(formatRepoForExport(currentRepo)));
+    }
+    if (repoList.length > 0) {
+      md.push("\n## Connected repositories");
+      repoList.forEach((repo) => {
+        const formatted = formatRepoForExport(repo);
+        md.push(`\n### ${stringifyValue(formatted["Repository name"])}`);
+        md.push(repoBlock(formatted));
+      });
+    }
+    content = md.join("\n");
+  }
+
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `devmetrics-report-${new Date().toISOString().slice(0, 10)}.${extension}`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function repoBlock(repo: Record<string, unknown>): string {
+  const lines = Object.entries(repo)
+    .filter(([key]) => key !== "History" && key !== "Repository")
+    .map(([key, value]) => `- ${readableLabel(key)}: ${stringifyValue(value)}`);
+  return lines.join("\n");
+}
+
+function flattenRepoForCsv(
+  repo: Record<string, unknown>,
+): Record<string, string> {
+  const flattened: Record<string, string> = {};
+
+  Object.entries(repo).forEach(([key, value]) => {
+    if (key === "metrics" && value && typeof value === "object") {
+      Object.entries(value as Record<string, unknown>).forEach(([metricKey, metricValue]) => {
+        if (metricKey === "repo") return;
+        flattened[readableLabel(metricKey)] = stringifyValue(metricValue);
+      });
+      return;
+    }
+
+    if (key === "history") {
+      return;
+    }
+
+    if (key === "Repository" || key === "Metrics" || key === "History") {
+      return;
+    }
+
+    flattened[readableLabel(key)] = stringifyValue(value);
+  });
+
+  return flattened;
+}
+
+function formatRepoForExport(repo: Record<string, unknown>): Record<string, unknown> {
+  const formatted: Record<string, unknown> = {};
+
+  Object.entries(repo).forEach(([key, value]) => {
+    if (key === "metrics" && value && typeof value === "object") {
+      Object.entries(value as Record<string, unknown>).forEach(([metricKey, metricValue]) => {
+        if (metricKey === "repo") return;
+        formatted[readableLabel(metricKey)] = metricValue;
+      });
+      return;
+    }
+
+    if (key === "history") {
+      return;
+    }
+
+    formatted[readableLabel(key)] = value;
+  });
+
+  return formatted;
+}
+
+function readableLabel(key: string): string {
+  const labels: Record<string, string> = {
+    id: "Repository ID",
+    name: "Repository name",
+    fullName: "Full repository name",
+    ownerLogin: "Owner",
+    description: "Description",
+    language: "Primary language",
+    starsCount: "Stars",
+    defaultBranch: "Default branch",
+    isPrivate: "Private repository",
+    lastSyncedAt: "Last synced at",
+    createdAt: "Created at",
+    repo: "Repository",
+    avgPrMergeHours: "Average merge time (hours)",
+    avgTimeToFirstReviewHours: "Average time to first review (hours)",
+    openPrCount: "Open PR count",
+    mergedPrCount: "Merged PR count",
+    closedPrCount: "Closed PR count",
+    totalLinesAdded: "Lines added",
+    totalLinesDeleted: "Lines deleted",
+    totalCommits: "Total commits",
+    churnRatio: "Churn ratio",
+    activeContributors: "Active contributors",
+    avgPrsPerContributorPerWeek: "PRs per contributor per week",
+    avgCommitsPerContributorPerWeek: "Commits per contributor per week",
+    healthScore: "Health score",
+  };
+
+  return labels[key] ?? key;
+}
+
+function stringifyValue(value: unknown): string {
+  if (value == null) return "—";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
+}
+
+function escapeCsv(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
 // ── Styles ─────────────────────────────────────────────────────────────────
 
 const styles: Record<string, React.CSSProperties> = {
@@ -1284,6 +1631,133 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     color: "#b91c1c",
     textAlign: "left",
+  },
+  exportTriggerBtn: {
+    fontSize: "13px",
+    padding: "10px 14px",
+    background: "rgba(255,255,255,0.9)",
+    color: "#0f172a",
+    border: "1px solid rgba(148,163,184,0.22)",
+    borderRadius: "999px",
+    cursor: "pointer",
+    boxShadow: "0 8px 24px rgba(15,23,42,0.06)",
+  },
+  exportOverlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(15,23,42,0.42)",
+    backdropFilter: "blur(8px)",
+    zIndex: 70,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "20px",
+  },
+  exportModal: {
+    width: "100%",
+    maxWidth: "720px",
+    borderRadius: "24px",
+    background: "rgba(255,255,255,0.96)",
+    border: "1px solid rgba(148,163,184,0.18)",
+    boxShadow: "0 30px 100px rgba(15,23,42,0.18)",
+    padding: "1.25rem",
+  },
+  exportHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "12px",
+    marginBottom: "1rem",
+  },
+  exportTitle: {
+    fontSize: "16px",
+    fontWeight: 700,
+    color: "#0f172a",
+    marginBottom: "4px",
+  },
+  exportSubtitle: {
+    fontSize: "13px",
+    color: "#64748b",
+    lineHeight: 1.6,
+  },
+  exportBody: {
+    display: "grid",
+    gap: "1rem",
+  },
+  exportSection: {
+    border: "1px solid rgba(148,163,184,0.14)",
+    borderRadius: "18px",
+    background: "rgba(248,250,252,0.72)",
+    padding: "1rem",
+  },
+  exportSectionTitle: {
+    fontSize: "12px",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    color: "#64748b",
+    marginBottom: "0.75rem",
+  },
+  exportScopeRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: "10px",
+  },
+  exportScopeBtn: {
+    padding: "12px 14px",
+    borderRadius: "16px",
+    border: "1px solid rgba(148,163,184,0.18)",
+    background: "rgba(255,255,255,0.92)",
+    color: "#334155",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: 600,
+    textAlign: "left",
+    boxShadow: "0 8px 20px rgba(15,23,42,0.04)",
+  },
+  exportScopeBtnActive: {
+    borderColor: "rgba(15,23,42,0.18)",
+    background: "linear-gradient(180deg, rgba(15,23,42,0.96), rgba(17,24,39,0.96))",
+    color: "#fff",
+  },
+  exportScopeHint: {
+    marginTop: "0.85rem",
+    fontSize: "12px",
+    lineHeight: 1.6,
+    color: "#64748b",
+  },
+  exportFormatRow: {
+    display: "flex",
+    gap: "8px",
+    flexWrap: "wrap",
+  },
+  exportFormatBtn: {
+    padding: "8px 12px",
+    borderRadius: "999px",
+    border: "1px solid rgba(148,163,184,0.2)",
+    background: "#fff",
+    cursor: "pointer",
+    color: "#475569",
+  },
+  exportFormatBtnActive: {
+    background: "rgba(15,23,42,0.95)",
+    color: "#fff",
+    borderColor: "rgba(15,23,42,0.95)",
+  },
+  exportFooter: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "10px",
+    marginTop: "1rem",
+  },
+  exportError: {
+    marginTop: "0.85rem",
+    padding: "10px 12px",
+    borderRadius: "12px",
+    background: "rgba(254,242,242,0.95)",
+    border: "1px solid rgba(248,113,113,0.24)",
+    color: "#b91c1c",
+    fontSize: "13px",
   },
   main: {
     width: "100%",

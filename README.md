@@ -146,7 +146,3 @@ Backend:
 ```bash
 ./mvnw test
 ```
-
-## Reference Notes
-
-For a more detailed question-and-answer style reference, see `INTERVIEW_QA.md`.

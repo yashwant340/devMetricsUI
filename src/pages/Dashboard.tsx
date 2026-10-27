@@ -25,6 +25,9 @@ export default function Dashboard() {
   const [compareRepoId, setCompareRepoId] = useState<string | null>(null);
   const [showAllMetrics, setShowAllMetrics] = useState(false);
   const [showComparisonTable, setShowComparisonTable] = useState(true);
+  const comparisonPanelRef = useRef<HTMLDivElement | null>(null);
+  // Bumped on every "Compare" so the panel scrolls into view even when the pair is unchanged
+  const [comparisonRequest, setComparisonRequest] = useState(0);
   const [exportScope, setExportScope] = useState<"current" | "all">("current");
   const [exportLoading, setExportLoading] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -65,6 +68,11 @@ export default function Dashboard() {
     });
     navigate("/login", { replace: true });
   };
+
+  useEffect(() => {
+    if (comparisonRequest === 0) return;
+    comparisonPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [comparisonRequest]);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -556,7 +564,7 @@ export default function Dashboard() {
           )}
         </div>
                   {effectiveCompareRepo && (
-            <div style={styles.comparisonPanel}>
+            <div ref={comparisonPanelRef} style={styles.comparisonPanel}>
               <div style={styles.comparisonHeader}>
                 <button
                   type="button"
@@ -725,6 +733,7 @@ export default function Dashboard() {
             setCompareRepoId(compareId);
             setShowComparisonTable(true);
             setShowCompareModal(false);
+            setComparisonRequest((count) => count + 1);
           }}
         />
       )}
@@ -1874,6 +1883,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   comparisonPanel: {
     marginTop: "18px",
+    scrollMarginTop: "80px", // clears the 64px sticky nav
     padding: "1rem 1.25rem 1.25rem",
     border: "1px solid rgba(148,163,184,0.18)",
     borderRadius: "20px",

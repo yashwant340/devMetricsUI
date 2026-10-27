@@ -10,6 +10,7 @@ import ConnectRepoModal from "../components/ConnectRepoModel";
 import CompareReposModal from "../components/CompareReposModal";
 import { useLatestMetrics, useMetricsHistory } from "../hooks/useMetrics";
 import type { MetricsSnapshot } from "../types/metrics";
+import apiFetch from "../hooks/useApi";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -68,9 +69,7 @@ export default function Dashboard() {
   useEffect(() => {
     const loadUser = async () => {
       try {
-        const res = await fetch("http://localhost:8080/api/auth/me", {
-          credentials: "include",
-        });
+        const res = await apiFetch("/api/auth/me");
         if (!res.ok) return;
         const data = await res.json();
         setUser({
@@ -301,9 +300,7 @@ export default function Dashboard() {
       const reportRepoList = exportScope === "all"
         ? await Promise.all(
             repos.map(async (repo) => {
-              const latestRes = await fetch(`http://localhost:8080/api/metrics/${repo.id}/latest`, {
-                credentials: "include",
-              });
+              const latestRes = await apiFetch(`/api/metrics/${repo.id}/latest`);
 
               const latest = latestRes.ok ? await latestRes.json().catch(() => null) : null;
 

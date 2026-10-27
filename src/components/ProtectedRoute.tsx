@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX, type ReactNode } from "react";
 import { Navigate } from "react-router-dom";
+import apiFetch from "../hooks/useApi";
 
 type ProtectedRouteProps = {
   children: ReactNode;
@@ -11,9 +12,8 @@ export default function ProtectedRoute({
   const [status, setStatus] = useState<"checking" | "ok" | "fail">("checking");
 
   useEffect(() => {
-    fetch("http://localhost:8080/api/auth/me", {
-      credentials: "include",
-    })
+    // apiFetch refreshes an expired access token, so a reload doesn't sign the user out
+    apiFetch("/api/auth/me")
       .then((res: Response) => setStatus(res.ok ? "ok" : "fail"))
       .catch(() => setStatus("fail"));
   }, []);
